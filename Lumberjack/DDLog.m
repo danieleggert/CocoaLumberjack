@@ -185,6 +185,7 @@ static unsigned int numProcessors;
 
 + (void)applicationWillTerminate:(NSNotification *)notification
 {
+    (void) notification;
 	[self flushLog];
 }
 
@@ -937,6 +938,7 @@ static char *dd_str_copy(const char *str)
 
 - (void)logMessage:(DDLogMessage *)logMessage
 {
+    (void) logMessage;
 	// Override me
 }
 

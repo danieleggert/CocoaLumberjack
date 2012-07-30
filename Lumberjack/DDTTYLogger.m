@@ -3,6 +3,8 @@
 #import <unistd.h>
 #import <sys/uio.h>
 
+#import "DDColor.h"
+
 /**
  * Welcome to Cocoa Lumberjack!
  * 
@@ -66,13 +68,13 @@
 #if TARGET_OS_IPHONE
   #define MakeColor(r, g, b) [UIColor colorWithRed:(r/255.0f) green:(g/255.0f) blue:(b/255.0f) alpha:1.0f]
 #else
-  #define MakeColor(r, g, b) [NSColor colorWithCalibratedRed:(r/255.0f) green:(g/255.0f) blue:(b/255.0f) alpha:1.0f]
+  #define MakeColor(r, g, b) [DDColor colorWithRed:(r/255.0f) green:(g/255.0f) blue:(b/255.0f)]
 #endif
 
 #if TARGET_OS_IPHONE
   #define OSColor UIColor
 #else
-  #define OSColor NSColor
+  #define OSColor DDColor
 #endif
 
 // If running in a shell, not all RGB colors will be supported.
@@ -700,9 +702,9 @@ static DDTTYLogger *sharedInstance;
 	
 	#else
 	
-	// Mac OS X
+	// DDColor
 	
-	[color getRed:rPtr green:gPtr blue:bPtr alpha:NULL];
+	[color getRed:rPtr green:gPtr blue:bPtr];
 	
 	#endif
 }

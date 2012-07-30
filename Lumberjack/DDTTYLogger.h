@@ -2,10 +2,11 @@
 #if TARGET_OS_IPHONE
 #import <UIKit/UIColor.h>
 #else
-#import <AppKit/NSColor.h>
+@class DDColor;
 #endif
 
 #import "DDLog.h"
+
 
 /**
  * Welcome to Cocoa Lumberjack!
@@ -108,7 +109,7 @@
 #if TARGET_OS_IPHONE
 - (void)setForegroundColor:(UIColor *)txtColor backgroundColor:(UIColor *)bgColor forFlag:(int)mask;
 #else
-- (void)setForegroundColor:(NSColor *)txtColor backgroundColor:(NSColor *)bgColor forFlag:(int)mask;
+- (void)setForegroundColor:(DDColor *)txtColor backgroundColor:(DDColor *)bgColor forFlag:(int)mask;
 #endif
 
 /**
@@ -123,7 +124,7 @@
 #if TARGET_OS_IPHONE
 - (void)setForegroundColor:(UIColor *)txtColor backgroundColor:(UIColor *)bgColor forFlag:(int)mask context:(int)ctxt;
 #else
-- (void)setForegroundColor:(NSColor *)txtColor backgroundColor:(NSColor *)bgColor forFlag:(int)mask context:(int)ctxt;
+- (void)setForegroundColor:(DDColor *)txtColor backgroundColor:(DDColor *)bgColor forFlag:(int)mask context:(int)ctxt;
 #endif
 
 /**
@@ -139,7 +140,7 @@
  * #if TARGET_OS_IPHONE
  *   UIColor *purple = [UIColor colorWithRed:(64/255.0) green:(0/255.0) blue:(128/255.0) alpha:1.0];
  * #else
- *   NSColor *purple = [NSColor colorWithCalibratedRed:(64/255.0) green:(0/255.0) blue:(128/255.0) alpha:1.0];
+ *   DDColor *purple = [DDColor colorWithRed:(64/255.0) green:(0/255.0) blue:(128/255.0)];
  * 
  * [[DDTTYLogger sharedInstance] setForegroundColor:purple backgroundColor:nil forTag:PurpleTag];
  * [DDLog addLogger:[DDTTYLogger sharedInstance]];
@@ -151,7 +152,7 @@
 #if TARGET_OS_IPHONE
 - (void)setForegroundColor:(UIColor *)txtColor backgroundColor:(UIColor *)bgColor forTag:(id <NSCopying>)tag;
 #else
-- (void)setForegroundColor:(NSColor *)txtColor backgroundColor:(NSColor *)bgColor forTag:(id <NSCopying>)tag;
+- (void)setForegroundColor:(DDColor *)txtColor backgroundColor:(DDColor *)bgColor forTag:(id <NSCopying>)tag;
 #endif
 
 /**

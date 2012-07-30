@@ -121,6 +121,9 @@
                         change:(NSDictionary *)change
                        context:(void *)context
 {
+    (void) object;
+    (void) context;
+    
 	NSNumber *old = [change objectForKey:NSKeyValueChangeOldKey];
 	NSNumber *new = [change objectForKey:NSKeyValueChangeNewKey];
 	
@@ -680,7 +683,7 @@
 	});
 	#endif
 	
-	uint64_t delay = [logFileRollingDate timeIntervalSinceNow] * NSEC_PER_SEC;
+	uint64_t delay = (uint64_t) ([logFileRollingDate timeIntervalSinceNow] * NSEC_PER_SEC);
 	dispatch_time_t fireTime = dispatch_time(DISPATCH_TIME_NOW, delay);
 	
 	dispatch_source_set_timer(rollingTimer, fireTime, DISPATCH_TIME_FOREVER, 1.0);
