@@ -7,8 +7,11 @@
 //
 
 #import <Foundation/Foundation.h>
-#import <ApplicationServices/ApplicationServices.h>
-
+#if TARGET_OS_IPHONE
+# import <CoreGraphics/CoreGraphics.h>
+#else
+# import <ApplicationServices/ApplicationServices.h>
+#endif
 
 @interface DDColor : NSObject
 
