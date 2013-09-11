@@ -675,11 +675,14 @@ static DDTTYLogger *sharedInstance;
 	
 	// iOS
 	
+	BOOL done = NO;
+	
 	if ([color respondsToSelector:@selector(getRed:green:blue:alpha:)])
 	{
-		[color getRed:rPtr green:gPtr blue:bPtr alpha:NULL];
+		done = [color getRed:rPtr green:gPtr blue:bPtr alpha:NULL];
 	}
-	else
+	
+	if (!done)
 	{
 		// The method getRed:green:blue:alpha: was only available starting iOS 5.
 		// So in iOS 4 and earlier, we have to jump through hoops.
@@ -687,7 +690,7 @@ static DDTTYLogger *sharedInstance;
 		CGColorSpaceRef rgbColorSpace = CGColorSpaceCreateDeviceRGB();
 		
 		unsigned char pixel[4];
-		CGContextRef context = CGBitmapContextCreate(&pixel, 1, 1, 8, 4, rgbColorSpace, kCGImageAlphaNoneSkipLast);
+		CGContextRef context = CGBitmapContextCreate(&pixel, 1, 1, 8, 4, rgbColorSpace, (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
 		
 		CGContextSetFillColorWithColor(context, [color CGColor]);
 		CGContextFillRect(context, CGRectMake(0, 0, 1, 1));
@@ -704,7 +707,9 @@ static DDTTYLogger *sharedInstance;
 	
 	// DDColor
 	
-	[color getRed:rPtr green:gPtr blue:bPtr];
+	NSColor *safeColor = [color colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
+	
+	[safeColor getRed:rPtr green:gPtr blue:bPtr alpha:NULL];
 	
 	#endif
 }
@@ -837,6 +842,7 @@ static DDTTYLogger *sharedInstance;
 		
 		appLen = [appName lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 		app = (char *)malloc(appLen + 1);
+		if (app == NULL) return nil;
 		
 		[appName getCString:app maxLength:(appLen+1) encoding:NSUTF8StringEncoding];
 		
@@ -846,8 +852,10 @@ static DDTTYLogger *sharedInstance;
 		
 		pidLen = [processID lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 		pid = (char *)malloc(pidLen + 1);
+		if (pid == NULL) return nil;
 		
-		[processID getCString:pid maxLength:(pidLen+1) encoding:NSUTF8StringEncoding];
+		BOOL processedID = [processID getCString:pid maxLength:(pidLen+1) encoding:NSUTF8StringEncoding];
+		if (NO == processedID) return nil;
 		
 		// Initialize color stuff
 		
@@ -1203,8 +1211,14 @@ static DDTTYLogger *sharedInstance;
 		
 		char msgStack[useStack ? (msgLen + 1) : 1]; // Analyzer doesn't like zero-size array, hence the 1
 		char *msg = useStack ? msgStack : (char *)malloc(msgLen + 1);
+		if (msg == NULL) return;
 		
-		[logMsg getCString:msg maxLength:(msgLen + 1) encoding:NSUTF8StringEncoding];
+		BOOL logMsgEnc = [logMsg getCString:msg maxLength:(msgLen + 1) encoding:NSUTF8StringEncoding];
+		if (!logMsgEnc)
+		{
+			if (!useStack && msg != NULL) free(msg);
+			return;
+		}
 		
 		// Write the log message to STDERR
 		
@@ -1398,8 +1412,9 @@ static DDTTYLogger *sharedInstance;
 			NSUInteger len1 = [escapeSeq lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 			NSUInteger len2 = [fgCodeRaw lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 			
-			[escapeSeq getCString:(fgCode)      maxLength:(len1+1) encoding:NSUTF8StringEncoding];
-			[fgCodeRaw getCString:(fgCode+len1) maxLength:(len2+1) encoding:NSUTF8StringEncoding];
+			BOOL escapeSeqEnc = [escapeSeq getCString:(fgCode)      maxLength:(len1+1) encoding:NSUTF8StringEncoding];
+			BOOL fgCodeRawEsc = [fgCodeRaw getCString:(fgCode+len1) maxLength:(len2+1) encoding:NSUTF8StringEncoding];
+			if (!escapeSeqEnc || !fgCodeRawEsc) return nil;
 			
 			fgCodeLen = len1+len2;
 		}
@@ -1432,8 +1447,9 @@ static DDTTYLogger *sharedInstance;
 			NSUInteger len1 = [escapeSeq lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 			NSUInteger len2 = [bgCodeRaw lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 			
-			[escapeSeq getCString:(bgCode)      maxLength:(len1+1) encoding:NSUTF8StringEncoding];
-			[bgCodeRaw getCString:(bgCode+len1) maxLength:(len2+1) encoding:NSUTF8StringEncoding];
+			BOOL escapeSeqEnc = [escapeSeq getCString:(bgCode)      maxLength:(len1+1) encoding:NSUTF8StringEncoding];
+			BOOL bgCodeRawEsc = [bgCodeRaw getCString:(bgCode+len1) maxLength:(len2+1) encoding:NSUTF8StringEncoding];
+			if (!escapeSeqEnc || !bgCodeRawEsc) return nil;
 			
 			bgCodeLen = len1+len2;
 		}

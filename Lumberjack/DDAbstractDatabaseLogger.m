@@ -15,32 +15,6 @@
 #warning This file must be compiled with ARC. Use -fobjc-arc flag (or convert project to ARC).
 #endif
 
-/**
- * Does ARC support support GCD objects?
- * It does if the minimum deployment target is iOS 6+ or Mac OS X 10.8+
-**/
-#if TARGET_OS_IPHONE
-
-  // Compiling for iOS
-
-  #if __IPHONE_OS_VERSION_MIN_REQUIRED >= 60000 // iOS 6.0 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else                                         // iOS 5.X or earlier
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1
-  #endif
-
-#else
-
-  // Compiling for Mac OS X
-
-  #if MAC_OS_X_VERSION_MIN_REQUIRED >= 1080     // Mac OS X 10.8 or later
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 0
-  #else
-    #define NEEDS_DISPATCH_RETAIN_RELEASE 1     // Mac OS X 10.7 or earlier
-  #endif
-
-#endif
-
 @interface DDAbstractDatabaseLogger ()
 - (void)destroySaveTimer;
 - (void)destroyDeleteTimer;
@@ -148,7 +122,7 @@
 			dispatch_resume(saveTimer);
 			saveTimerSuspended = NO;
 		}
-		#if NEEDS_DISPATCH_RETAIN_RELEASE
+		#if !OS_OBJECT_USE_OBJC
 		dispatch_release(saveTimer);
 		#endif
 		saveTimer = NULL;
@@ -159,7 +133,7 @@
 {
 	if ((saveTimer != NULL) && (saveInterval > 0.0) && (unsavedTime > 0.0))
 	{
-		uint64_t interval = (uint64_t) (saveInterval * NSEC_PER_SEC);
+		uint64_t interval = (uint64_t)(saveInterval * NSEC_PER_SEC);
 		dispatch_time_t startTime = dispatch_time(unsavedTime, interval);
 		
 		dispatch_source_set_timer(saveTimer, startTime, interval, NSEC_PER_MSEC);
@@ -193,7 +167,7 @@
 	if (deleteTimer)
 	{
 		dispatch_source_cancel(deleteTimer);
-		#if NEEDS_DISPATCH_RETAIN_RELEASE
+		#if !OS_OBJECT_USE_OBJC
 		dispatch_release(deleteTimer);
 		#endif
 		deleteTimer = NULL;
@@ -204,7 +178,7 @@
 {
 	if ((deleteTimer != NULL) && (deleteInterval > 0.0) && (maxAge > 0.0))
 	{
-		uint64_t interval = (uint64_t) (deleteInterval * NSEC_PER_SEC);
+		uint64_t interval = (uint64_t)(deleteInterval * NSEC_PER_SEC);
 		dispatch_time_t startTime;
 		
 		if (lastDeleteTime > 0)
@@ -221,16 +195,18 @@
 	if ((deleteTimer == NULL) && (deleteInterval > 0.0) && (maxAge > 0.0))
 	{
 		deleteTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, loggerQueue);
-		
-		dispatch_source_set_event_handler(deleteTimer, ^{ @autoreleasepool {
-			
-			[self performDelete];
-			
-		}});
-		
-		[self updateDeleteTimer];
-		
-		dispatch_resume(deleteTimer);
+
+        if (deleteTimer != NULL) {
+            dispatch_source_set_event_handler(deleteTimer, ^{ @autoreleasepool {
+
+                [self performDelete];
+
+            }});
+
+            [self updateDeleteTimer];
+            
+            if (deleteTimer != NULL) dispatch_resume(deleteTimer);
+        }
 	}
 }
 
@@ -240,25 +216,35 @@
 
 - (NSUInteger)saveThreshold
 {
-	if (dispatch_get_current_queue() == loggerQueue)
-	{
-		return saveThreshold;
-	}
-	else
-	{
-		__block NSUInteger result;
-		
+	// The design of this method is taken from the DDAbstractLogger implementation.
+	// For extensive documentation please refer to the DDAbstractLogger implementation.
+	
+	// Note: The internal implementation MUST access the colorsEnabled variable directly,
+	// This method is designed explicitly for external access.
+	//
+	// Using "self." syntax to go through this method will cause immediate deadlock.
+	// This is the intended result. Fix it by accessing the ivar directly.
+	// Great strides have been take to ensure this is safe to do. Plus it's MUCH faster.
+	
+	NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+	NSAssert(![self isOnInternalLoggerQueue], @"MUST access ivar directly, NOT via self.* syntax.");
+	
+	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+	
+	__block NSUInteger result;
+	
+	dispatch_sync(globalLoggingQueue, ^{
 		dispatch_sync(loggerQueue, ^{
 			result = saveThreshold;
 		});
-		
-		return result;
-	}
+	});
+	
+	return result;
 }
 
 - (void)setSaveThreshold:(NSUInteger)threshold
 {
-	dispatch_block_t block = ^{
+	dispatch_block_t block = ^{ @autoreleasepool {
 		
 		if (saveThreshold != threshold)
 		{
@@ -271,42 +257,60 @@
 			
 			if ((unsavedCount >= saveThreshold) && (saveThreshold > 0))
 			{
-				@autoreleasepool {
-					
-					[self performSaveAndSuspendSaveTimer];
-				
-				}
+				[self performSaveAndSuspendSaveTimer];
 			}
 		}
-	};
+	}};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	// The design of the setter logic below is taken from the DDAbstractLogger implementation.
+	// For documentation please refer to the DDAbstractLogger implementation.
+	
+	if ([self isOnInternalLoggerQueue])
+	{
 		block();
+	}
 	else
-		dispatch_async(loggerQueue, block);
+	{
+		dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+		NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+		
+		dispatch_async(globalLoggingQueue, ^{
+			dispatch_async(loggerQueue, block);
+		});
+	}
 }
 
 - (NSTimeInterval)saveInterval
 {
-	if (dispatch_get_current_queue() == loggerQueue)
-	{
-		return saveInterval;
-	}
-	else
-	{
-		__block NSTimeInterval result;
-		
+	// The design of this method is taken from the DDAbstractLogger implementation.
+	// For extensive documentation please refer to the DDAbstractLogger implementation.
+	
+	// Note: The internal implementation MUST access the colorsEnabled variable directly,
+	// This method is designed explicitly for external access.
+	//
+	// Using "self." syntax to go through this method will cause immediate deadlock.
+	// This is the intended result. Fix it by accessing the ivar directly.
+	// Great strides have been take to ensure this is safe to do. Plus it's MUCH faster.
+	
+	NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+	NSAssert(![self isOnInternalLoggerQueue], @"MUST access ivar directly, NOT via self.* syntax.");
+	
+	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+	
+	__block NSTimeInterval result;
+	
+	dispatch_sync(globalLoggingQueue, ^{
 		dispatch_sync(loggerQueue, ^{
 			result = saveInterval;
 		});
-		
-		return result;
-	}
+	});
+	
+	return result;
 }
 
 - (void)setSaveInterval:(NSTimeInterval)interval
 {
-	dispatch_block_t block = ^{
+	dispatch_block_t block = ^{ @autoreleasepool {
 	
 		// C99 recommended floating point comparison macro
 		// Read: isLessThanOrGreaterThan(floatA, floatB)
@@ -330,28 +334,25 @@
 			
 			if (saveInterval > 0.0)
 			{
-				@autoreleasepool
+				if (saveTimer == NULL)
 				{
-					if (saveTimer == NULL)
-					{
-						// Handles #2
-						// 
-						// Since the saveTimer uses the unsavedTime to calculate it's first fireDate,
-						// if a save is needed the timer will fire immediately.
-						
-						[self createSuspendedSaveTimer];
-						[self updateAndResumeSaveTimer];
-					}
-					else
-					{
-						// Handles #3
-						// Handles #4
-						// 
-						// Since the saveTimer uses the unsavedTime to calculate it's first fireDate,
-						// if a save is needed the timer will fire immediately.
-						
-						[self updateAndResumeSaveTimer];
-					}
+					// Handles #2
+					//
+					// Since the saveTimer uses the unsavedTime to calculate it's first fireDate,
+					// if a save is needed the timer will fire immediately.
+					
+					[self createSuspendedSaveTimer];
+					[self updateAndResumeSaveTimer];
+				}
+				else
+				{
+					// Handles #3
+					// Handles #4
+					//
+					// Since the saveTimer uses the unsavedTime to calculate it's first fireDate,
+					// if a save is needed the timer will fire immediately.
+					
+					[self updateAndResumeSaveTimer];
 				}
 			}
 			else if (saveTimer)
@@ -361,35 +362,57 @@
 				[self destroySaveTimer];
 			}
 		}
-	};
+	}};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	// The design of the setter logic below is taken from the DDAbstractLogger implementation.
+	// For documentation please refer to the DDAbstractLogger implementation.
+	
+	if ([self isOnInternalLoggerQueue])
+	{
 		block();
+	}
 	else
-		dispatch_async(loggerQueue, block);
+	{
+		dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+		NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+		
+		dispatch_async(globalLoggingQueue, ^{
+			dispatch_async(loggerQueue, block);
+		});
+	}
 }
 
 - (NSTimeInterval)maxAge
 {
-	if (dispatch_get_current_queue() == loggerQueue)
-	{
-		return maxAge;
-	}
-	else
-	{
-		__block NSTimeInterval result;
-		
+	// The design of this method is taken from the DDAbstractLogger implementation.
+	// For extensive documentation please refer to the DDAbstractLogger implementation.
+	
+	// Note: The internal implementation MUST access the colorsEnabled variable directly,
+	// This method is designed explicitly for external access.
+	//
+	// Using "self." syntax to go through this method will cause immediate deadlock.
+	// This is the intended result. Fix it by accessing the ivar directly.
+	// Great strides have been take to ensure this is safe to do. Plus it's MUCH faster.
+	
+	NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+	NSAssert(![self isOnInternalLoggerQueue], @"MUST access ivar directly, NOT via self.* syntax.");
+	
+	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+	
+	__block NSTimeInterval result;
+	
+	dispatch_sync(globalLoggingQueue, ^{
 		dispatch_sync(loggerQueue, ^{
 			result = maxAge;
 		});
-		
-		return result;
-	}
+	});
+	
+	return result;
 }
 
 - (void)setMaxAge:(NSTimeInterval)interval
 {
-	dispatch_block_t block = ^{
+	dispatch_block_t block = ^{ @autoreleasepool {
 		
 		// C99 recommended floating point comparison macro
 		// Read: isLessThanOrGreaterThan(floatA, floatB)
@@ -439,46 +462,65 @@
 			
 			if (shouldDeleteNow)
 			{
-				@autoreleasepool
-				{
-					[self performDelete];
-					
-					if (deleteTimer)
-						[self updateDeleteTimer];
-					else
-						[self createAndStartDeleteTimer];
-				}
+				[self performDelete];
+				
+				if (deleteTimer)
+					[self updateDeleteTimer];
+				else
+					[self createAndStartDeleteTimer];
 			}
 		}
-	};
+	}};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	// The design of the setter logic below is taken from the DDAbstractLogger implementation.
+	// For documentation please refer to the DDAbstractLogger implementation.
+	
+	if ([self isOnInternalLoggerQueue])
+	{
 		block();
+	}
 	else
-		dispatch_async(loggerQueue, block);
+	{
+		dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+		NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+		
+		dispatch_async(globalLoggingQueue, ^{
+			dispatch_async(loggerQueue, block);
+		});
+	}
 }
 
 - (NSTimeInterval)deleteInterval
 {
-	if (dispatch_get_current_queue() == loggerQueue)
-	{
-		return deleteInterval;
-	}
-	else
-	{
-		__block NSTimeInterval result;
-		
+	// The design of this method is taken from the DDAbstractLogger implementation.
+	// For extensive documentation please refer to the DDAbstractLogger implementation.
+	
+	// Note: The internal implementation MUST access the colorsEnabled variable directly,
+	// This method is designed explicitly for external access.
+	//
+	// Using "self." syntax to go through this method will cause immediate deadlock.
+	// This is the intended result. Fix it by accessing the ivar directly.
+	// Great strides have been take to ensure this is safe to do. Plus it's MUCH faster.
+	
+	NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+	NSAssert(![self isOnInternalLoggerQueue], @"MUST access ivar directly, NOT via self.* syntax.");
+	
+	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+	
+	__block NSTimeInterval result;
+	
+	dispatch_sync(globalLoggingQueue, ^{
 		dispatch_sync(loggerQueue, ^{
 			result = deleteInterval;
 		});
-		
-		return result;
-	}
+	});
+	
+	return result;
 }
 
 - (void)setDeleteInterval:(NSTimeInterval)interval
 {
-	dispatch_block_t block = ^{
+	dispatch_block_t block = ^{ @autoreleasepool {
 		
 		// C99 recommended floating point comparison macro
 		// Read: isLessThanOrGreaterThan(floatA, floatB)
@@ -502,27 +544,24 @@
 			
 			if (deleteInterval > 0.0)
 			{
-				@autoreleasepool
+				if (deleteTimer == NULL)
 				{
-					if (deleteTimer == NULL)
-					{
-						// Handles #2
-						// 
-						// Since the deleteTimer uses the lastDeleteTime to calculate it's first fireDate,
-						// if a delete is needed the timer will fire immediately.
-						
-						[self createAndStartDeleteTimer];
-					}
-					else
-					{
-						// Handles #3
-						// Handles #4
-						// 
-						// Since the deleteTimer uses the lastDeleteTime to calculate it's first fireDate,
-						// if a save is needed the timer will fire immediately.
-						
-						[self updateDeleteTimer];
-					}
+					// Handles #2
+					//
+					// Since the deleteTimer uses the lastDeleteTime to calculate it's first fireDate,
+					// if a delete is needed the timer will fire immediately.
+					
+					[self createAndStartDeleteTimer];
+				}
+				else
+				{
+					// Handles #3
+					// Handles #4
+					//
+					// Since the deleteTimer uses the lastDeleteTime to calculate it's first fireDate,
+					// if a save is needed the timer will fire immediately.
+					
+					[self updateDeleteTimer];
 				}
 			}
 			else if (deleteTimer)
@@ -532,30 +571,52 @@
 				[self destroyDeleteTimer];
 			}
 		}
-	};
+	}};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	// The design of the setter logic below is taken from the DDAbstractLogger implementation.
+	// For documentation please refer to the DDAbstractLogger implementation.
+	
+	if ([self isOnInternalLoggerQueue])
+	{
 		block();
+	}
 	else
-		dispatch_async(loggerQueue, block);
+	{
+		dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+		NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+		
+		dispatch_async(globalLoggingQueue, ^{
+			dispatch_async(loggerQueue, block);
+		});
+	}
 }
 
 - (BOOL)deleteOnEverySave
 {
-	if (dispatch_get_current_queue() == loggerQueue)
-	{
-		return deleteOnEverySave;
-	}
-	else
-	{
-		__block BOOL result;
-		
+	// The design of this method is taken from the DDAbstractLogger implementation.
+	// For extensive documentation please refer to the DDAbstractLogger implementation.
+	
+	// Note: The internal implementation MUST access the colorsEnabled variable directly,
+	// This method is designed explicitly for external access.
+	//
+	// Using "self." syntax to go through this method will cause immediate deadlock.
+	// This is the intended result. Fix it by accessing the ivar directly.
+	// Great strides have been take to ensure this is safe to do. Plus it's MUCH faster.
+	
+	NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+	NSAssert(![self isOnInternalLoggerQueue], @"MUST access ivar directly, NOT via self.* syntax.");
+	
+	dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+	
+	__block BOOL result;
+	
+	dispatch_sync(globalLoggingQueue, ^{
 		dispatch_sync(loggerQueue, ^{
 			result = deleteOnEverySave;
 		});
-		
-		return result;
-	}
+	});
+	
+	return result;
 }
 
 - (void)setDeleteOnEverySave:(BOOL)flag
@@ -565,10 +626,22 @@
 		deleteOnEverySave = flag;
 	};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	// The design of the setter logic below is taken from the DDAbstractLogger implementation.
+	// For documentation please refer to the DDAbstractLogger implementation.
+	
+	if ([self isOnInternalLoggerQueue])
+	{
 		block();
+	}
 	else
-		dispatch_async(loggerQueue, block);
+	{
+		dispatch_queue_t globalLoggingQueue = [DDLog loggingQueue];
+		NSAssert(![self isOnGlobalLoggingQueue], @"Core architecture requirement failure");
+		
+		dispatch_async(globalLoggingQueue, ^{
+			dispatch_async(loggerQueue, block);
+		});
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -582,7 +655,7 @@
 		[self performSaveAndSuspendSaveTimer];
 	}};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	if ([self isOnInternalLoggerQueue])
 		block();
 	else
 		dispatch_async(loggerQueue, block);
@@ -595,7 +668,7 @@
 		[self performDelete];
 	}};
 	
-	if (dispatch_get_current_queue() == loggerQueue)
+	if ([self isOnInternalLoggerQueue])
 		block();
 	else
 		dispatch_async(loggerQueue, block);
